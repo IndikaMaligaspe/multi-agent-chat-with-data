@@ -1,6 +1,7 @@
 from langgraph.graph import StateGraph, END
 from typing import TypedDict, Annotated
 from langchain_openai import ChatOpenAI
+from langfuse.langchain import CallbackHandler
 import operator
 
 class AgentState(TypedDict):
@@ -89,5 +90,8 @@ def create_workflow():
         }
     )
     graph.add_edge('answer', END)
+    
+    # Initialize the handler
+    langfuse_handler = CallbackHandler()
 
-    return graph.compile()
+    return graph.compile().with_config({"callbacks": [langfuse_handler]})
