@@ -60,8 +60,8 @@ def handle_query(request: QueryRequest):
         logger.error(f"HTTP error: {http_exc.detail}",exc_info=True)
         raise http_exc
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal Server Error",exc_info=True)
+        logger.error(f"Unexpected error: {str(e)}",exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
     
 @app.get("/schema")
 def get_schema():

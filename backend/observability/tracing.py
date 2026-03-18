@@ -3,12 +3,15 @@ from langfuse import observe, get_client, propagate_attributes
 from langfuse.langchain import CallbackHandler
 from opentelemetry import trace
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 #Initialize the Langfuse 
 langfuse = Langfuse(
     public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
     secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
-    host="https://api.langfuse.com",
+    host=os.getenv("LANGFUSE_BASE_URL"),
 )
 
 
