@@ -1,0 +1,219 @@
+/* TableWidget.css - Styling for the data table widget */
+
+.table-widget-container {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background-color: #fff;
+  margin-bottom: 1rem;
+}
+
+.table-title {
+  padding: 12px 16px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom: 1px solid #eaeaea;
+  background-color: #f9f9f9;
+}
+
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-widget {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+/* Header Styles */
+.table-widget thead {
+  background-color: #f5f5f5;
+}
+
+.table-widget thead th {
+  padding: 12px 16px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 1px solid #e0e0e0;
+  white-space: nowrap;
+}
+
+.table-widget thead th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.table-widget thead th.sortable:hover {
+  background-color: #eaeaea;
+}
+
+.table-widget thead th.sorted {
+  background-color: #e6f7ff;
+}
+
+.sort-indicator {
+  margin-left: 4px;
+  font-size: 10px;
+  color: #666;
+}
+
+.sort-indicator.asc {
+  color: #1890ff;
+}
+
+.sort-indicator.desc {
+  color: #1890ff;
+}
+
+/* Rows and Cells */
+.table-widget tbody tr {
+  border-bottom: 1px solid #f0f0f0;
+  transition: background-color 0.2s;
+}
+
+.table-widget tbody tr:last-child {
+  border-bottom: none;
+}
+
+.table-widget tbody tr:hover {
+  background-color: #f9f9f9;
+}
+
+.table-widget tbody td {
+  padding: 10px 16px;
+  color: #333;
+}
+
+.table-widget tbody td.highlighted {
+  font-weight: 500;
+}
+
+/* Zebra Striping */
+.table-widget.zebra tbody tr.odd {
+  background-color: #fafafa;
+}
+
+.table-widget.zebra tbody tr.even {
+  background-color: #fff;
+}
+
+/* Dense Mode */
+.table-widget.dense thead th {
+  padding: 8px 12px;
+}
+
+.table-widget.dense tbody td {
+  padding: 6px 12px;
+}
+
+/* Sticky Header */
+.table-widget.sticky-header thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* Sticky First Column */
+.table-widget.sticky-first-column th:first-child,
+.table-widget.sticky-first-column td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background-color: inherit;
+}
+
+/* Empty State */
+.table-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 150px;
+  border: 1px dashed #d9d9d9;
+  border-radius: 8px;
+  background-color: #fafafa;
+}
+
+.table-empty-state .empty-message {
+  color: #777;
+  text-align: center;
+  font-size: 14px;
+}
+
+/* Pagination */
+.table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid #eaeaea;
+  background-color: #f9f9f9;
+}
+
+.pagination-button {
+  background-color: #fff;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.pagination-button:hover:not(:disabled) {
+  border-color: #1890ff;
+  color: #1890ff;
+}
+
+.pagination-button:disabled {
+  cursor: not-allowed;
+  color: #ccc;
+}
+
+.pagination-info {
+  font-size: 14px;
+  color: #666;
+}
+
+.pagination-detail {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #999;
+}
+
+/* Responsive adaptations */
+@media (max-width: 768px) {
+  .table-widget {
+    font-size: 13px;
+  }
+
+  .table-widget thead th,
+  .table-widget tbody td {
+    padding: 8px 12px;
+  }
+
+  .pagination-detail {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .table-widget {
+    font-size: 12px;
+  }
+
+  .table-widget thead th,
+  .table-widget tbody td {
+    padding: 6px 8px;
+  }
+
+  .pagination-button {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+}

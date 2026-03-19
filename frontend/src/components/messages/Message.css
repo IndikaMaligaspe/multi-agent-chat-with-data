@@ -1,0 +1,52 @@
+.message {
+  display: flex;
+  flex-direction: column;
+  max-width: 80%;
+  margin: 8px 0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  position: relative;
+  animation: messageAppear 0.3s ease-out;
+}
+
+.message-user {
+  align-self: flex-end;
+  background-color: #0a84ff;
+  color: white;
+  border-bottom-right-radius: 2px;
+  margin-left: auto;
+}
+
+.message-ai {
+  align-self: flex-start;
+  background-color: #f2f2f7;
+  color: #333;
+  border-bottom-left-radius: 2px;
+  margin-right: auto;
+}
+
+.message-content {
+  word-break: break-word;
+}
+
+.message-timestamp {
+  font-size: 0.7rem;
+  color: rgba(0, 0, 0, 0.5);
+  align-self: flex-end;
+  margin-top: 4px;
+}
+
+.message-user .message-timestamp {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+@keyframes messageAppear {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

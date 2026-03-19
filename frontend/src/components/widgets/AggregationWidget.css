@@ -1,0 +1,150 @@
+/* AggregationWidget.css - Styling for aggregated value displays */
+
+.aggregation-widget {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.aggregation-widget:hover {
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+}
+
+/* Label styling */
+.aggregation-label {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+/* Value container and value */
+.aggregation-value-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.aggregation-value {
+  font-weight: 700;
+  color: #333;
+  margin-right: 8px;
+}
+
+.aggregation-value .unit {
+  font-size: 0.7em;
+  margin-left: 4px;
+  color: #666;
+}
+
+/* Size variations */
+.aggregation-widget.size-small .aggregation-label {
+  font-size: 12px;
+}
+
+.aggregation-widget.size-small .aggregation-value {
+  font-size: 20px;
+}
+
+.aggregation-widget.size-medium .aggregation-label {
+  font-size: 14px;
+}
+
+.aggregation-widget.size-medium .aggregation-value {
+  font-size: 28px;
+}
+
+.aggregation-widget.size-large .aggregation-label {
+  font-size: 16px;
+}
+
+.aggregation-widget.size-large .aggregation-value {
+  font-size: 36px;
+}
+
+/* Description styling */
+.aggregation-description {
+  font-size: 13px;
+  color: #666;
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+/* Previous value display */
+.aggregation-previous {
+  font-size: 12px;
+  color: #888;
+  margin-top: 8px;
+}
+
+/* Trend indicators */
+.trend-indicator {
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.trend-indicator.trend-up.positive,
+.trend-indicator.trend-down.negative {
+  background-color: rgba(82, 196, 26, 0.1);
+  color: #52c41a;
+}
+
+.trend-indicator.trend-up.negative,
+.trend-indicator.trend-down.positive {
+  background-color: rgba(245, 34, 45, 0.1);
+  color: #f5222d;
+}
+
+.trend-arrow {
+  margin-right: 4px;
+  font-size: 0.9em;
+}
+
+/* Widget color coding */
+.aggregation-widget.positive .aggregation-value {
+  color: #52c41a;
+}
+
+.aggregation-widget.negative .aggregation-value {
+  color: #f5222d;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .aggregation-widget.size-large .aggregation-value {
+    font-size: 30px;
+  }
+
+  .aggregation-widget.size-medium .aggregation-value {
+    font-size: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .aggregation-widget {
+    padding: 12px;
+  }
+
+  .aggregation-widget.size-large .aggregation-value {
+    font-size: 24px;
+  }
+
+  .aggregation-widget.size-medium .aggregation-value {
+    font-size: 20px;
+  }
+
+  .aggregation-widget.size-small .aggregation-value {
+    font-size: 16px;
+  }
+}

@@ -1,0 +1,454 @@
+/* OptionsWidget.css - Styling for multiple choice options */
+
+.options-widget {
+  background-color: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  width: 100%;
+  transition: all 0.3s ease;
+}
+
+/* Question and description */
+.options-question {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #333;
+  font-size: 16px;
+}
+
+.options-description {
+  color: #666;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+/* Size variations */
+.options-widget.size-small {
+  font-size: 0.9em;
+  padding: 12px;
+}
+
+.options-widget.size-large {
+  padding: 20px;
+  font-size: 1.1em;
+}
+
+.options-widget.size-small .options-question {
+  font-size: 14px;
+}
+
+.options-widget.size-large .options-question {
+  font-size: 18px;
+}
+
+/* Search input */
+.options-search {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.options-search input {
+  width: 100%;
+  padding: 8px 12px;
+  padding-right: 32px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.options-search input:focus {
+  border-color: #40a9ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+  outline: none;
+}
+
+.clear-search {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+}
+
+.clear-search:hover {
+  color: #666;
+}
+
+/* Button style options */
+.options-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.options-buttons.layout-vertical {
+  flex-direction: column;
+}
+
+.options-buttons.layout-horizontal {
+  flex-direction: row;
+}
+
+.options-buttons.layout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.option-button {
+  padding: 8px 16px;
+  border: 1px solid #d9d9d9;
+  background-color: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  text-align: left;
+}
+
+.option-button.equal-width {
+  flex: 1;
+}
+
+.option-button:hover,
+.option-button:focus {
+  border-color: #40a9ff;
+  color: #40a9ff;
+}
+
+.option-button.selected {
+  background-color: #e6f7ff;
+  color: #1890ff;
+  border-color: #1890ff;
+}
+
+/* Card style options */
+.options-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.options-cards.layout-vertical {
+  flex-direction: column;
+}
+
+.options-cards.layout-horizontal {
+  flex-direction: row;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.options-cards.layout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+.option-card {
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  padding: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  position: relative;
+  background-color: #fff;
+}
+
+.option-card:hover {
+  border-color: #40a9ff;
+}
+
+.option-card.selected {
+  background-color: #e6f7ff;
+  border-color: #1890ff;
+}
+
+.option-content {
+  flex: 1;
+}
+
+.option-label {
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.option-description {
+  font-size: 0.9em;
+  color: #666;
+}
+
+.option-indicator {
+  margin-left: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Checkbox/Radio indicators */
+.checkbox,
+.radio {
+  width: 18px;
+  height: 18px;
+  border: 1px solid #d9d9d9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.checkbox {
+  border-radius: 2px;
+}
+
+.radio {
+  border-radius: 50%;
+}
+
+.option-card.selected .checkbox,
+.option-card.selected .radio {
+  border-color: #1890ff;
+}
+
+.check {
+  color: #1890ff;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  background-color: #1890ff;
+  border-radius: 50%;
+}
+
+/* Radio style options */
+.options-radio {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.options-radio.layout-horizontal {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.options-radio.layout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.radio-option:hover {
+  background-color: #f5f5f5;
+}
+
+.radio-option.selected {
+  background-color: #e6f7ff;
+}
+
+.radio-option input {
+  margin-right: 8px;
+}
+
+/* Dropdown style */
+.options-dropdown {
+  margin-bottom: 16px;
+}
+
+.options-dropdown select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  font-size: 14px;
+  background-color: #fff;
+  transition: all 0.3s;
+}
+
+.options-dropdown select:focus {
+  border-color: #40a9ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+  outline: none;
+}
+
+/* Icons */
+.option-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.icon-position-left {
+  margin-right: 8px;
+}
+
+.icon-position-right {
+  margin-left: 8px;
+}
+
+.icon-position-top {
+  margin-bottom: 8px;
+}
+
+/* Action buttons */
+.options-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.submit-button,
+.cancel-button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+
+.submit-button {
+  background-color: #1890ff;
+  color: white;
+  border: 1px solid #1890ff;
+}
+
+.submit-button:hover:not(:disabled) {
+  background-color: #40a9ff;
+  border-color: #40a9ff;
+}
+
+.submit-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.cancel-button {
+  background-color: #fff;
+  color: rgba(0, 0, 0, 0.65);
+  border: 1px solid #d9d9d9;
+}
+
+.cancel-button:hover:not(:disabled) {
+  color: #40a9ff;
+  border-color: #40a9ff;
+}
+
+/* Result message */
+.options-result {
+  text-align: center;
+  padding: 16px 0;
+}
+
+.result-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.result-detail {
+  color: #666;
+}
+
+.options-result.success .result-title {
+  color: #52c41a;
+}
+
+.options-result.cancelled {
+  color: #8c8c8c;
+}
+
+/* Empty state */
+.options-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.empty-message {
+  color: #777;
+  text-align: center;
+  font-size: 14px;
+}
+
+/* States */
+.options-widget.submitted {
+  background-color: #f6ffed;
+  border-color: #b7eb8f;
+}
+
+.options-widget.cancelled {
+  background-color: #f5f5f5;
+}
+
+.options-widget.processing {
+  opacity: 0.8;
+  pointer-events: none;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .options-buttons {
+    gap: 6px;
+  }
+
+  .option-button {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
+  .options-cards.layout-horizontal {
+    flex-wrap: nowrap;
+  }
+
+  .option-card {
+    min-width: 180px;
+  }
+}
+
+@media (max-width: 480px) {
+  .options-widget {
+    padding: 12px;
+  }
+
+  .options-cards.layout-grid,
+  .options-buttons.layout-grid,
+  .options-radio.layout-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .options-actions {
+    flex-direction: column;
+  }
+
+  .submit-button,
+  .cancel-button {
+    width: 100%;
+  }
+}
