@@ -95,7 +95,13 @@ const AIMessage = ({
       typeof content === "object" && content !== null
         ? Object.keys(content)
         : [],
+    contentType: typeof content,
+    contentValue: content,
+    messageId: messageId,
   });
+
+  // Log the full content structure for debugging
+  console.log("🔍 FULL CONTENT STRUCTURE:", JSON.stringify(content, null, 2));
 
   // MAJOR SIMPLIFICATION - Ensure type field is present
   // If content has no type but has metadata.widgetType, use that
@@ -106,6 +112,17 @@ const AIMessage = ({
         `🔄 Setting missing type "${content.metadata.widgetType}" from metadata`,
       );
       content.type = content.metadata.widgetType;
+    }
+
+    // Additional fix: If we have a type but no metadata.widgetType, set metadata.widgetType from type
+    if (content.type && !content.metadata?.widgetType) {
+      if (!content.metadata) {
+        content.metadata = {};
+      }
+      console.log(
+        `🔄 Setting missing metadata.widgetType "${content.type}" from type`,
+      );
+      content.metadata.widgetType = content.type;
     }
 
     // Fix 2: Auto-detect table structures
@@ -204,6 +221,36 @@ const AIMessage = ({
   }
   console.log("====== END AIMessage DEBUGGING ======");
 
+  // Log the final rendering decision
+  console.log("🔄 RENDERING DECISION:", {
+    isWidget,
+    hasWidgetError: !!widgetError,
+    contentType: content?.type,
+    hasData: !!content?.data,
+    isTable: content?.type === "table",
+    isAggregation: content?.type === "aggregation",
+    hasRows: !!content?.data?.rows,
+    hasColumns: !!content?.data?.columns,
+    hasHeaders: !!content?.data?.headers,
+    willUseDirectTableRenderer:
+      content?.type === "table" &&
+      content?.data &&
+      (content?.data?.rows || content?.data?.columns || content?.data?.headers),
+    willUseDirectAggregationRenderer:
+      content?.type === "aggregation" && content?.data,
+    willUseWidgetContainer:
+      !(
+        content?.type === "table" &&
+        content?.data &&
+        (content?.data?.rows ||
+          content?.data?.columns ||
+          content?.data?.headers)
+      ) &&
+      !(content?.type === "aggregation" && content?.data) &&
+      isWidget &&
+      !widgetError,
+  });
+
   return (
     <Message isUser={false} timestamp={timestamp} className="ai-message">
       {isWidget ? (
@@ -273,7 +320,12 @@ const AIMessage = ({
               </div>
 
               {/* Direct rendering for specific widget types to bypass widget system */}
-              {content.type === "table" && content.data ? (
+              {/* Add additional check for data structure to ensure it has rows and headers/columns */}
+              {content.type === "table" &&
+              content.data &&
+              (content.data.rows ||
+                content.data.columns ||
+                content.data.headers) ? (
                 <>
                   <DirectTableRenderer data={content.data} />
                   {/* Log the direct rendering decision for debugging */}
@@ -303,7 +355,7 @@ const AIMessage = ({
                         margin: "10px 0",
                       }}
                     >
-                      {content.data.value || content.data.count || 0}
+                      {content.data.value ?? content.data.count ?? 0}
                     </div>
                     {content.data.subtitle && (
                       <div style={{ fontSize: "12px", color: "#999" }}>

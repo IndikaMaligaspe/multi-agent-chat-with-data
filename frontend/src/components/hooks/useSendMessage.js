@@ -113,7 +113,17 @@ const useSendMessage = ({
               : [],
             type: response.answer.type || "undefined",
             widgetType: response.answer.metadata?.widgetType || "undefined",
+            fullResponse: response,
+            fullAnswerObject: response.answer,
+            fullDataObject: response.answer.data,
+            fullMetadataObject: response.answer.metadata,
           });
+
+          // Log the full response structure for debugging
+          console.log(
+            "🔍 FULL RESPONSE STRUCTURE:",
+            JSON.stringify(response, null, 2),
+          );
 
           // If it's a table widget, log more details
           if (response.answer.metadata?.widgetType === "table") {
@@ -214,6 +224,15 @@ const useSendMessage = ({
         return response;
       } catch (err) {
         console.error("Error sending message:", err);
+        console.error("Error details:", {
+          message: err.message,
+          stack: err.stack,
+          name: err.name,
+          query: query,
+          options: options,
+          lastWidgetType: lastWidgetType,
+          timestamp: new Date().toISOString(),
+        });
 
         setError(err);
         setIsLoading(false);

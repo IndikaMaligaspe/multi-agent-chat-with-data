@@ -85,66 +85,41 @@ export const processResponseData = (data, options = {}) => {
         answer.metadata = {};
       }
 
-      // Always infer the widget type from data structure, even if one is already provided
-      // This prevents mismatches between data structure and widget type
-      let inferredWidgetType = null;
+      // Only infer widget type when the API did not provide one
+      if (!answer.metadata.widgetType) {
+        let inferredWidgetType = null;
 
-      // Infer widget type from data structure based on data patterns
-      if (Array.isArray(answer.data)) {
-        if (answer.data.length > 0 && typeof answer.data[0] === "object") {
-          inferredWidgetType = "table";
+        if (Array.isArray(answer.data)) {
+          if (answer.data.length > 0 && typeof answer.data[0] === "object") {
+            inferredWidgetType = "table";
+          } else {
+            inferredWidgetType = "aggregation";
+          }
+        } else if (typeof answer.data === "object") {
+          if (
+            (answer.data.columns || answer.data.headers) &&
+            answer.data.rows
+          ) {
+            inferredWidgetType = "table";
+          } else if (answer.data.items) {
+            inferredWidgetType = "comparison";
+          } else {
+            inferredWidgetType = "aggregation";
+          }
         } else {
-          inferredWidgetType = "aggregation";
+          inferredWidgetType = "text";
         }
-      } else if (typeof answer.data === "object") {
-        // Check for table data structures with various property patterns
-        if (answer.data.columns && answer.data.rows) {
-          // Handle {columns, rows} pattern explicitly
-          inferredWidgetType = "table";
-        } else if (answer.data.headers && answer.data.rows) {
-          // Handle {headers, rows} pattern
-          inferredWidgetType = "table";
-        } else if (answer.data.items) {
-          // Handle comparison data
-          inferredWidgetType = "comparison";
-        } else {
-          // Default for simple objects
-          inferredWidgetType = "aggregation";
-        }
-      } else {
-        // Default for primitives
-        inferredWidgetType = "text";
-      }
 
-      // Log the inference results
-      console.log("[DEBUG] Widget type analysis:", {
-        existing: answer.metadata.widgetType || "none",
-        inferred: inferredWidgetType,
-        dataStructure: Array.isArray(answer.data)
-          ? "array"
-          : typeof answer.data,
-      });
-
-      // Override widget type if data structure doesn't match the provided type
-      // This is critical for tables that incorrectly have "aggregation" as their type
-      if (
-        answer.metadata.widgetType &&
-        inferredWidgetType !== answer.metadata.widgetType &&
-        // Check specifically for tables being labeled as non-tables
-        (inferredWidgetType === "table" ||
-          (answer.metadata.widgetType === "table" &&
-            inferredWidgetType !== "table"))
-      ) {
+        answer.metadata.widgetType = inferredWidgetType;
         console.log(
-          `[DEBUG] Overriding mismatched widget type: "${answer.metadata.widgetType}" -> "${inferredWidgetType}" based on data structure`,
+          "[DEBUG] Setting missing widget type (inferred):",
+          inferredWidgetType,
         );
-
-        answer.metadata.widgetType = inferredWidgetType;
-        answer.metadata.typeOverridden = true;
-      } else if (!answer.metadata.widgetType) {
-        // Set a widget type if none was provided
-        answer.metadata.widgetType = inferredWidgetType;
-        console.log("[DEBUG] Setting missing widget type:", inferredWidgetType);
+      } else {
+        console.log(
+          "[DEBUG] Using API-provided widget type:",
+          answer.metadata.widgetType,
+        );
       }
 
       // Add widget state transition metadata
@@ -275,9 +250,19 @@ export const processResponseData = (data, options = {}) => {
     };
   } catch (error) {
     console.error("Error processing response data:", error);
+    console.error("Error processing details:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      dataType: typeof data,
+      dataKeys: data ? Object.keys(data) : [],
+      options: options,
+    });
+
     // Add error metadata but don't alter the data structure
     data.processingError = {
       message: error.message,
+      stack: error.stack,
       timestamp: new Date().toISOString(),
     };
   }
@@ -331,6 +316,10 @@ export const sendQuery = async (query, options = {}) => {
 
     const data = await response.json();
     console.log(`[DEBUG] Raw API response data:`, data);
+    console.log(
+      `[DEBUG] Raw API response data structure:`,
+      JSON.stringify(data, null, 2),
+    );
 
     // Process the response data with our enhanced helper function
     const processedData = processResponseData(data, {
@@ -340,10 +329,56 @@ export const sendQuery = async (query, options = {}) => {
     });
 
     console.log(`[DEBUG] Processed API response:`, processedData);
+    console.log(
+      `[DEBUG] Processed API response structure:`,
+      JSON.stringify(processedData, null, 2),
+    );
+
+    // Detailed logging of the answer structure
+    if (processedData?.answer) {
+      console.log(`[DEBUG] Answer object structure:`, {
+        type: processedData.answer.type,
+        hasData: !!processedData.answer.data,
+        dataType: typeof processedData.answer.data,
+        dataKeys: processedData.answer.data
+          ? Object.keys(processedData.answer.data)
+          : [],
+        hasMetadata: !!processedData.answer.metadata,
+        metadataKeys: processedData.answer.metadata
+          ? Object.keys(processedData.answer.metadata)
+          : [],
+        widgetType: processedData.answer.metadata?.widgetType,
+      });
+
+      // Log table-specific data if it's a table
+      if (
+        processedData.answer.metadata?.widgetType === "table" ||
+        processedData.answer.type === "table"
+      ) {
+        console.log(`[DEBUG] Table data structure:`, {
+          hasRows: !!processedData.answer.data?.rows,
+          rowCount: processedData.answer.data?.rows?.length || 0,
+          hasColumns: !!processedData.answer.data?.columns,
+          columnCount: processedData.answer.data?.columns?.length || 0,
+          hasHeaders: !!processedData.answer.data?.headers,
+          headerCount: processedData.answer.data?.headers?.length || 0,
+          firstRow: processedData.answer.data?.rows?.[0] || null,
+        });
+      }
+    }
 
     return processedData;
   } catch (error) {
     console.error("Query API error:", error);
+    console.error("Query API error details:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      query: query,
+      url: urlWithCacheBust,
+      options: options,
+      timestamp: new Date().toISOString(),
+    });
     throw error;
   }
 };
@@ -386,6 +421,15 @@ export const sendWidgetAction = async (endpoint, actionData, options = {}) => {
     return processedData;
   } catch (error) {
     console.error("Widget action API error:", error);
+    console.error("Widget action API error details:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      endpoint: endpoint,
+      actionDataType: typeof actionData,
+      actionDataKeys: actionData ? Object.keys(actionData) : [],
+      options: options,
+    });
     throw error;
   }
 };
@@ -421,6 +465,13 @@ export const getSchema = async () => {
     return processedData;
   } catch (error) {
     console.error("Schema API error:", error);
+    console.error("Schema API error details:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      url: url,
+      timestamp: new Date().toISOString(),
+    });
     throw error;
   }
 };
@@ -457,6 +508,13 @@ export const healthCheck = async () => {
     return processedData;
   } catch (error) {
     console.error("Health check error:", error);
+    console.error("Health check error details:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      url: url,
+      timestamp: new Date().toISOString(),
+    });
     throw error;
   }
 };

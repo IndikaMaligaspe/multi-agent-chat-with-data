@@ -8,8 +8,31 @@ import TestTableComponent from "./components/widgets/TestTableComponent";
 
 function App() {
   const [input, setInput] = useState("");
-  const { messages, loading, error: chatError } = useChatMessages();
-  const { sendMessage, isSending } = useSendMessage();
+  const {
+    messages,
+    loading,
+    error: chatError,
+    addUserMessage,
+    addResponseMessage,
+  } = useChatMessages();
+
+  const { sendMessage, isSending } = useSendMessage({
+    onMessageSent: (query) => {
+      // Add user message to the chat when sent
+      addUserMessage(query);
+    },
+    onResponseReceived: (response) => {
+      // Add AI response to the chat when received
+      console.log(
+        "🔄 Response received in App.js, adding to messages:",
+        response,
+      );
+      addResponseMessage(response);
+    },
+    onError: (err) => {
+      console.error("Send message error:", err);
+    },
+  });
   const handleUpdateState = (newState) => {
     console.log("Widget wishes to update state:", newState);
     // In a real app, you'd integrate this with your state management\

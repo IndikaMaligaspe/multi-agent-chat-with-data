@@ -91,11 +91,22 @@ class WidgetContainer extends React.Component {
         processedData = JSON.parse(processedData);
       } catch (error) {
         console.error("[DEBUG] Failed to parse widget data string:", error);
+        console.error("[DEBUG] Error details:", {
+          message: error.message,
+          stack: error.stack,
+          name: error.name,
+          dataType: typeof processedData,
+          dataPreview:
+            typeof processedData === "string"
+              ? processedData.substring(0, 100)
+              : null,
+        });
 
         // Add error information to the processed data
         if (typeof processedData === "object") {
           processedData.parseError = true;
           processedData.errorMessage = error.message;
+          processedData.errorStack = error.stack;
         }
       }
     }
@@ -195,7 +206,7 @@ class WidgetContainer extends React.Component {
 
     // Add metadata to processed data for component access
     if (metadata && Object.keys(metadata).length > 0) {
-      processedData.metadata = metadata;
+      processedData = { ...processedData, metadata };
     }
 
     console.log(`Processed ${effectiveWidgetType} data:`, processedData);
@@ -236,8 +247,6 @@ class WidgetContainer extends React.Component {
       prevProps.widgetType !== widgetType ||
       prevProps.widgetData !== widgetData ||
       prevProps.widgetTransition !== widgetTransition ||
-      // Explicitly check for fresh data flag to force update
-      widgetData?.metadata?.freshData === true ||
       // Check if refresh timestamps differ
       (widgetData?.metadata?.refreshTimestamp &&
         widgetData?.metadata?.refreshTimestamp !==
@@ -269,6 +278,18 @@ class WidgetContainer extends React.Component {
   componentDidCatch(error, errorInfo) {
     // Log error to console or error tracking service
     console.error("Widget rendering failed:", error, errorInfo);
+    console.error("Widget rendering error details:", {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      componentStack: errorInfo.componentStack,
+      widgetType: this.props.widgetType,
+      widgetDataType: typeof this.props.widgetData,
+      widgetDataKeys: this.props.widgetData
+        ? Object.keys(this.props.widgetData)
+        : [],
+      hasProcessedData: !!this.state.processedData,
+    });
 
     // In production, you might want to send this to a monitoring service
     // errorTrackingService.captureError(error, { extra: errorInfo });
@@ -339,6 +360,17 @@ class WidgetContainer extends React.Component {
     };
 
     // Debug - Enhanced logging for widget debugging
+    // Combine any provided className with the widget-specific class
+    const containerClassName =
+      `widget-container widget-type-${effectiveWidgetType} ${className}`.trim();
+
+    // Add a transition class if this widget is transitioning
+    const transitionClass = widgetTransition
+      ? `widget-transitioning widget-from-${widgetTransition.from} widget-to-${widgetTransition.to}`
+      : "";
+
+    const finalClassName = `${containerClassName} ${transitionClass}`.trim();
+
     console.log(`--------------- WIDGET DEBUG ---------------`);
     console.log(
       `WidgetContainer for type: "${effectiveWidgetType}" (original: "${widgetType}")`,
@@ -408,28 +440,36 @@ class WidgetContainer extends React.Component {
     console.log(`Widget namespace:`, agentNamespace);
     console.log(`--------------- END DEBUG ---------------`);
 
-    // Combine any provided className with the widget-specific class
-    const containerClassName =
-      `widget-container widget-type-${effectiveWidgetType} ${className}`.trim();
-
-    // Add a transition class if this widget is transitioning
-    const transitionClass = widgetTransition
-      ? `widget-transitioning widget-from-${widgetTransition.from} widget-to-${widgetTransition.to}`
-      : "";
-
-    const finalClassName = `${containerClassName} ${transitionClass}`.trim();
-
     // Use the processed data from state for all widget types
     // This implements a unified rendering approach for all widget types
+    // Final pre-render logging
+    console.log("🚀 WIDGET CONTAINER FINAL RENDER:", {
+      effectiveWidgetType,
+      hasProcessedData: !!this.state.processedData,
+      processedDataType: typeof this.state.processedData,
+      processedDataKeys: this.state.processedData
+        ? Object.keys(this.state.processedData)
+        : [],
+      hasWidgetComponent: !!WidgetComponent,
+      widgetComponentName: WidgetComponent?.name || "Unknown",
+      finalClassName,
+      messageId,
+    });
+
     return (
       <div className={finalClassName} data-message-id={messageId}>
         {/* Render widget component with properly processed data */}
+        {console.log(
+          "⚡ RENDERING WIDGET COMPONENT:",
+          WidgetComponent?.name || "Unknown",
+        )}
         <WidgetComponent
           data={this.state.processedData}
           onAction={handleAction}
           metadata={combinedMetadata}
           widgetTransition={widgetTransition}
         />
+        {console.log("✅ WIDGET COMPONENT RENDERED")}
 
         {/* Optional fallback toggle and display */}
         {showFallback && widgetData?.fallback && (

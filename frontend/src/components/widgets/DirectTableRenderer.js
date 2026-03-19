@@ -11,6 +11,10 @@ const DirectTableRenderer = ({ data }) => {
   const headers = data?.headers || data?.columns || [];
   const rows = data?.rows || [];
 
+  // Additional logging for debugging
+  console.log("🔍 DIRECT TABLE RENDERER DATA TYPE:", typeof data);
+  console.log("🔍 DIRECT TABLE RENDERER DATA KEYS:", Object.keys(data || {}));
+
   console.log("🔍 DIRECT TABLE RENDERER EXTRACTED:", {
     headers,
     rows,
@@ -20,6 +24,44 @@ const DirectTableRenderer = ({ data }) => {
     isFirstRowArray: rows.length > 0 ? Array.isArray(rows[0]) : false,
     dataKeys: Object.keys(data || {}),
   });
+
+  // Handle stringified JSON data
+  if (
+    typeof data === "string" &&
+    (data.startsWith("{") || data.startsWith("["))
+  ) {
+    console.log(
+      "🔍 DIRECT TABLE RENDERER: Attempting to parse stringified JSON data",
+    );
+    try {
+      const parsedData = JSON.parse(data);
+      // Extract headers and rows from parsed data
+      const parsedHeaders =
+        parsedData?.headers ||
+        parsedData?.columns ||
+        (Array.isArray(parsedData) && parsedData.length > 0
+          ? Object.keys(parsedData[0])
+          : []);
+      const parsedRows =
+        parsedData?.rows || (Array.isArray(parsedData) ? parsedData : []);
+
+      if (parsedHeaders.length && parsedRows.length) {
+        console.log("🔍 DIRECT TABLE RENDERER: Successfully parsed JSON data");
+        return <DirectTableRenderer data={parsedData} />;
+      }
+    } catch (error) {
+      console.error(
+        "🔍 DIRECT TABLE RENDERER: Failed to parse JSON data",
+        error,
+      );
+      console.error("🔍 DIRECT TABLE RENDERER: Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        data: data,
+      });
+    }
+  }
 
   // Simple check if we have valid data
   if (!headers.length || !rows.length) {
@@ -34,6 +76,15 @@ const DirectTableRenderer = ({ data }) => {
   }
 
   console.log("✅ DIRECT TABLE RENDERER: Valid data, rendering table");
+  console.log("📊 DIRECT TABLE RENDERER FINAL DATA:", {
+    headers,
+    headerCount: headers.length,
+    rows,
+    rowCount: rows.length,
+    firstRowSample: rows.length > 0 ? rows[0] : null,
+    firstRowType: rows.length > 0 ? typeof rows[0] : null,
+    firstRowIsArray: rows.length > 0 ? Array.isArray(rows[0]) : null,
+  });
 
   return (
     <div
