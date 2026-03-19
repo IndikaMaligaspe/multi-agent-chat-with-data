@@ -1,8 +1,10 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 import mysql.connector as _mysql_connector
 from mysql.connector import Error
 import os
 import time
+import datetime
+import json
 from dotenv import load_dotenv
 from observability.logging import get_logger, log_with_props, log_execution_time, RequestContext
 
@@ -10,6 +12,41 @@ from observability.logging import get_logger, log_with_props, log_execution_time
 logger = get_logger(__name__)
 
 load_dotenv()
+
+# Custom JSON encoder to handle datetime objects
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        elif isinstance(obj, datetime.date):
+            return obj.isoformat()
+        return super().default(obj)
+
+def serialize_sql_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Serialize SQL query results to ensure datetime objects are converted to ISO format strings.
+    This prevents JSON serialization errors when datetime objects are returned.
+    """
+    if not results:
+        return results
+        
+    try:
+        # Use custom JSON encoder to convert to JSON and back
+        json_str = json.dumps(results, cls=DateTimeEncoder)
+        return json.loads(json_str)
+    except Exception as e:
+        logger.error(f"Error serializing SQL results: {str(e)}")
+        # Manual conversion as fallback
+        serialized = []
+        for row in results:
+            serialized_row = {}
+            for key, value in row.items():
+                if isinstance(value, (datetime.datetime, datetime.date)):
+                    serialized_row[key] = value.isoformat()
+                else:
+                    serialized_row[key] = value
+            serialized.append(serialized_row)
+        return serialized
 
 class ChatWithDataMCPServer:
     """
@@ -92,6 +129,9 @@ class ChatWithDataMCPServer:
                 results = cursor.fetchall()
                 row_count = len(results)
                 
+                # Serialize results to handle datetime objects
+                serialized_results = serialize_sql_results(results)
+                
                 execution_time = time.time() - start_time
                 log_with_props(logger, "info", "SELECT query executed successfully",
                               query_type=query_type,
@@ -101,7 +141,7 @@ class ChatWithDataMCPServer:
                 
                 return {
                     "success": True,
-                    "data": results,
+                    "data": serialized_results,
                     "row_count": row_count,
                     "error": None
                 }
@@ -164,6 +204,9 @@ class ChatWithDataMCPServer:
                     cursor = self.connection.cursor(dictionary=True)
                     cursor.execute(f"DESCRIBE {table_name}")
                     schema = cursor.fetchall()
+                    
+                    # Serialize schema to handle datetime objects if present
+                    schema = serialize_sql_results(schema)
                     
                     execution_time = time.time() - start_time
                     log_with_props(logger, "info", "Schema retrieved successfully for table",
