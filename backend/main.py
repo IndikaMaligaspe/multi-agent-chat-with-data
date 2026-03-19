@@ -1,7 +1,9 @@
 from fastapi import FastAPI, HTTPException, Request
+from json_encoder import CustomJsonEncoder
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import time
+from typing import Union, Dict, Any
 from guardrails_validators import validate_query
 from observability.tracing import trace_agent_run
 from observability.logging import get_logger, RequestContext, log_with_props, log_execution_time
@@ -10,7 +12,7 @@ from middleware.logging_middleware import LoggingMiddleware
 # Setup Logging with our centralized configuration
 logger = get_logger(__name__)
 
-app = FastAPI(title="DataChat Backend API")
+app = FastAPI(title="DataChat Backend API", json_encoder=CustomJsonEncoder)
 
 # Add middleware (order matters - logging middleware should be first to catch all requests)
 app.add_middleware(LoggingMiddleware)
@@ -26,8 +28,8 @@ class QueryRequest(BaseModel):
     query: str
 
 class QueryResponse(BaseModel):
-    success: bool
-    answer: str = None
+    success: bool = Field(..., description="Indicates if the query was processed successfully.")
+    answer: Union[str, Dict[str, Any]] = Field(None, description="The answer to the query, which can be a string or a widget object.")
     error: str = None
     trace_id: str = None
 
