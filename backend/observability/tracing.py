@@ -75,7 +75,11 @@ def trace_agent_run(query: str):
                 'sql_result': [],
                 'validation_result': [],
                 'final_answer': '',
-                'errors': []
+                'errors': [],
+                'feedback_score': 0,
+                'feedback_message': "",
+                'feedback_attempt': 0,
+                'feedback_exceeded': False
             })
             
         # Calculate execution time

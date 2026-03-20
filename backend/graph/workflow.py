@@ -48,10 +48,16 @@ logger = get_logger(__name__)
 class AgentState(TypedDict):
     """State shared between agents"""
     query: str
-    sql_result: Annotated[List[Dict[str, Any]], operator.add] 
-    validation_result:Annotated[List[Dict[str, Any]], operator.add] 
+    sql_result: Annotated[List[Dict[str, Any]], operator.add]
+    validation_result:Annotated[List[Dict[str, Any]], operator.add]
     final_answer: str
-    errors: Annotated[List[Dict[str, Any]], operator.add] 
+    errors: Annotated[List[Dict[str, Any]], operator.add]
+
+    # Feedback evaluation fields
+    feedback_score: int          # LLM quality score 1-10 (0 = not yet evaluated)
+    feedback_message: str        # Evaluator's critique / reasoning
+    feedback_attempt: int        # Number of improvement attempts so far
+    feedback_exceeded: bool      # True when max attempts reached without passing
 
 def sql_node(state: AgentState) -> AgentState:
     """SQL Agent Node"""
@@ -815,28 +821,341 @@ def answer_node(state: AgentState) -> AgentState:
             }]
         }
 
-def should_continue(state: AgentState) -> str:
-    """ Routing logic """
-    node_name = "routing"
+def feedback_node(state: AgentState) -> AgentState:
+    """
+    Evaluates the quality of final_answer on a scale of 1-10 using an LLM.
+    Increments feedback_attempt counter.
+    Updates feedback_score and feedback_message in state.
+    """
+    node_name = "feedback_node"
     request_id = RequestContext.get_request_id()
-    
-    # Get validation result
-    validation = state.get('validation_result', [{}])[-1]
-    is_valid = validation.get('is_valid', False)
-    
-    # Determine next step
-    next_step = 'answer' if is_valid else END
-    
-    # Log routing decision
-    log_with_props(logger, "info", f"Routing decision: {next_step}",
+    attempt = state.get('feedback_attempt', 0) + 1
+
+    log_with_props(logger, "info", f"Entering {node_name}",
                   node=node_name,
                   request_id=request_id,
-                  is_valid=is_valid,
-                  next_step=next_step)
-    
-    return next_step
+                  attempt=attempt)
 
-#Build the graph
+    try:
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+        # Extract text from final_answer widget
+        final_answer = state.get('final_answer', '')
+        if isinstance(final_answer, dict):
+            answer_text = (
+                final_answer.get('data', '') or
+                final_answer.get('fallback', '') or
+                str(final_answer)
+            )
+        else:
+            answer_text = str(final_answer)
+
+        prompt = f"""You are a quality evaluator for a data chatbot.
+
+Evaluate the following answer to the user's question on a scale of 1 to 10.
+
+User Question: {state['query']}
+
+Answer Provided: {answer_text}
+
+Scoring Criteria:
+- 9-10: Complete, accurate, clear, and directly addresses the question
+- 7-8: Mostly complete with minor gaps; still useful
+- 5-6: Partially addresses the question; missing key information
+- 3-4: Superficial or vague; does not really help the user
+- 1-2: Wrong, empty, error response, or no actionable information
+
+Note: If the answer is an error message because the query failed, score based on
+whether the error message is clear and actionable for the user (a clear, helpful
+error message can still score 6+).
+
+Return ONLY valid JSON, no markdown or extra text:
+{{
+  "score": <integer 1-10>,
+  "reasoning": "<brief explanation of score>",
+  "improvement_suggestions": "<specific suggestions for improvement if score < 6, else empty string>"
+}}"""
+
+        with log_execution_time(logger, f"{node_name}_llm_invoke"):
+            response = llm.invoke(prompt)
+
+        # Parse JSON response
+        try:
+            evaluation = json.loads(response.content)
+            score = int(evaluation.get('score', 5))
+            reasoning = evaluation.get('reasoning', '')
+            suggestions = evaluation.get('improvement_suggestions', '')
+            feedback_message = f"{reasoning} SUGGESTIONS: {suggestions}".strip()
+        except (json.JSONDecodeError, ValueError, TypeError) as parse_error:
+            log_with_props(logger, "warning", f"Failed to parse LLM feedback JSON in {node_name}",
+                          node=node_name,
+                          request_id=request_id,
+                          error=str(parse_error),
+                          raw_response=response.content[:200])
+            # Default to neutral score to trigger improvement
+            score = 5
+            feedback_message = "Unable to parse evaluator response. Triggering improvement."
+
+        log_with_props(logger, "info", f"Feedback evaluation complete",
+                      node=node_name,
+                      request_id=request_id,
+                      score=score,
+                      attempt=attempt,
+                      reasoning_preview=feedback_message[:100] if feedback_message else "")
+
+        # Log node exit
+        log_with_props(logger, "info", f"Exiting {node_name}",
+                      node=node_name,
+                      request_id=request_id)
+
+        return {
+            **state,
+            'feedback_score': score,
+            'feedback_message': feedback_message,
+            'feedback_attempt': attempt,
+        }
+
+    except Exception as e:
+        log_with_props(logger, "error", f"Error in {node_name}",
+                      node=node_name,
+                      request_id=request_id,
+                      error=str(e),
+                      exc_info=True)
+        # On unexpected error, pass through with a high score to avoid blocking the user
+        return {
+            **state,
+            'feedback_score': 10,
+            'feedback_message': f"Feedback evaluation error (pass-through): {str(e)}",
+            'feedback_attempt': attempt,
+        }
+
+def improve_answer_node(state: AgentState) -> AgentState:
+    """
+    Uses LLM feedback critique to generate an improved final_answer.
+    Preserves the widget format expected by the frontend.
+    """
+    node_name = "improve_answer_node"
+    request_id = RequestContext.get_request_id()
+
+    log_with_props(logger, "info", f"Entering {node_name}",
+                  node=node_name,
+                  request_id=request_id,
+                  current_score=state.get('feedback_score', 0),
+                  attempt=state.get('feedback_attempt', 0))
+
+    try:
+        llm = ChatOpenAI(model="gpt-4", temperature=0.3)
+
+        # Extract text from existing final_answer widget
+        final_answer = state.get('final_answer', '')
+        if isinstance(final_answer, dict):
+            original_text = (
+                final_answer.get('data', '') or
+                final_answer.get('fallback', '') or
+                str(final_answer)
+            )
+            original_widget_type = final_answer.get('type', 'text')
+        else:
+            original_text = str(final_answer)
+            original_widget_type = 'text'
+
+        # Build context about the SQL result
+        sql_result_obj = state.get('sql_result', [{}])[-1] if state.get('sql_result') else {}
+        sql_context = f"SQL Success: {sql_result_obj.get('success', False)}"
+        if sql_result_obj.get('output'):
+            sql_context += f"\nSQL Output (first 300 chars): {str(sql_result_obj['output'])[:300]}"
+        if sql_result_obj.get('error'):
+            sql_context += f"\nSQL Error: {sql_result_obj.get('error')}"
+
+        prompt = f"""You are a data chatbot improvement assistant.
+
+The following answer received a low quality score and needs improvement.
+
+User Question: {state['query']}
+
+Current Answer: {original_text}
+
+Quality Score Given: {state.get('feedback_score', 0)}/10
+
+Evaluator Feedback: {state.get('feedback_message', 'No feedback available')}
+
+Data Context:
+{sql_context}
+
+Instructions:
+1. Address the specific issues raised in the evaluator feedback
+2. Make the answer clear, concise, and directly useful to the user
+3. If the original was an error message, explain it more clearly and offer constructive next steps
+4. Maintain markdown formatting for readability
+5. Return ONLY the improved answer text, no commentary or metadata
+
+Improved Answer:"""
+
+        with log_execution_time(logger, f"{node_name}_llm_invoke"):
+            response = llm.invoke(prompt)
+
+        improved_text = response.content.strip()
+
+        log_with_props(logger, "info", f"Answer improvement complete",
+                      node=node_name,
+                      request_id=request_id,
+                      original_length=len(original_text),
+                      improved_length=len(improved_text))
+
+        # Re-wrap improved text in a widget format
+        improved_widget = WidgetFormatter.format_response(
+            data=improved_text,
+            query=state['query'],
+            widget_type=original_widget_type
+        )
+        
+        # Log node exit
+        log_with_props(logger, "info", f"Exiting {node_name}",
+                      node=node_name,
+                      request_id=request_id)
+
+        return {
+            **state,
+            'final_answer': improved_widget,
+        }
+
+    except Exception as e:
+        log_with_props(logger, "error", f"Error in {node_name}",
+                      node=node_name,
+                      request_id=request_id,
+                      error=str(e),
+                      exc_info=True)
+        # On error, return state unchanged — feedback_node will re-evaluate existing answer
+        return state
+
+# Maximum number of feedback improvement attempts before failing
+MAX_FEEDBACK_ATTEMPTS = 2
+
+def feedback_router(state: AgentState) -> str:
+    """
+    Conditional edge function for routing after feedback evaluation.
+
+    Returns:
+        'accept'  — score >= 6, answer is good enough → END
+        'improve' — score < 6, attempts < MAX_FEEDBACK_ATTEMPTS → improve_answer
+        'fail'    — score < 6, attempts >= MAX_FEEDBACK_ATTEMPTS → error_end
+    """
+    node_name = "feedback_router"
+    request_id = RequestContext.get_request_id()
+
+    score = state.get('feedback_score', 0)
+    attempts = state.get('feedback_attempt', 0)
+
+    if score >= 6:
+        decision = 'accept'
+    elif attempts >= MAX_FEEDBACK_ATTEMPTS:
+        decision = 'fail'
+        # Update the feedback_exceeded flag when max attempts are reached
+        state['feedback_exceeded'] = True
+    else:
+        decision = 'improve'
+
+    log_with_props(logger, "info", f"Feedback routing decision: {decision}",
+                  node=node_name,
+                  request_id=request_id,
+                  score=score,
+                  attempts=attempts,
+                  max_attempts=MAX_FEEDBACK_ATTEMPTS,
+                  decision=decision)
+
+    return decision
+
+# Maximum number of feedback improvement attempts before failing
+MAX_FEEDBACK_ATTEMPTS = 2
+
+def feedback_router(state: AgentState) -> str:
+    """
+    Conditional edge function for routing after feedback evaluation.
+
+    Returns:
+        'accept'  — score >= 6, answer is good enough → END
+        'improve' — score < 6, attempts < MAX_FEEDBACK_ATTEMPTS → improve_answer
+        'fail'    — score < 6, attempts >= MAX_FEEDBACK_ATTEMPTS → error_end
+    """
+    node_name = "feedback_router"
+    request_id = RequestContext.get_request_id()
+
+    score = state.get('feedback_score', 0)
+    attempts = state.get('feedback_attempt', 0)
+
+    if score >= 6:
+        decision = 'accept'
+    elif attempts >= MAX_FEEDBACK_ATTEMPTS:
+        decision = 'fail'
+        # Update the feedback_exceeded flag when max attempts are reached
+        state['feedback_exceeded'] = True
+    else:
+        decision = 'improve'
+
+    log_with_props(logger, "info", f"Feedback routing decision: {decision}",
+                  node=node_name,
+                  request_id=request_id,
+                  score=score,
+                  attempts=attempts,
+                  max_attempts=MAX_FEEDBACK_ATTEMPTS,
+                  decision=decision)
+
+    return decision
+
+def error_end_node(state: AgentState) -> AgentState:
+    """
+    Handles persistent low-quality answers after max feedback attempts.
+    Logs a structured ERROR and produces a clear, actionable user-facing message.
+    """
+    node_name = "error_end_node"
+    request_id = RequestContext.get_request_id()
+
+    # Log a full diagnostic ERROR for observability
+    log_with_props(logger, "error",
+                  "Max feedback attempts exceeded — unable to generate satisfactory answer",
+                  node=node_name,
+                  request_id=request_id,
+                  query=state.get('query', ''),
+                  final_score=state.get('feedback_score', 0),
+                  total_attempts=state.get('feedback_attempt', 0),
+                  max_attempts=MAX_FEEDBACK_ATTEMPTS,
+                  last_feedback=state.get('feedback_message', '')[:200])
+
+    user_message = f"""I wasn't able to generate a satisfactory answer to your question after {MAX_FEEDBACK_ATTEMPTS} attempts.
+
+**Your question:** {state.get('query', 'Unknown question')}
+
+**What you can try:**
+- Rephrase your question with more specific details
+- Break complex questions into simpler parts
+- Ask about a single metric or entity at a time
+- Check if you're asking about data that exists in the system
+
+If this issue persists, please contact your data team for assistance.
+
+*Reference ID: {request_id}*"""
+
+    error_widget = WidgetFormatter.format_response(
+        data=user_message,
+        query=state.get('query', ''),
+        widget_type="text"
+    )
+
+    return {
+        **state,
+        'final_answer': error_widget,
+        'feedback_exceeded': True,
+        'errors': state.get('errors', []) + [{
+            'node': node_name,
+            'error': 'Max feedback attempts exceeded without passing quality threshold',
+            'final_score': state.get('feedback_score', 0),
+            'total_attempts': state.get('feedback_attempt', 0),
+            'last_feedback_message': state.get('feedback_message', ''),
+            'timestamp': time.time()
+        }]
+    }
+
+# Build the graph
 def create_workflow():
     """Build and return the workflow graph"""
     request_id = RequestContext.get_request_id()
@@ -851,20 +1170,34 @@ def create_workflow():
     graph.add_node('sql_agent', sql_node)
     graph.add_node('validator', validation_node)
     graph.add_node('answer', answer_node)
+    graph.add_node('feedback', feedback_node)
+    graph.add_node('improve_answer', improve_answer_node)
+    graph.add_node('error_end', error_end_node)
     
     logger.debug("Added nodes to workflow graph",
-                extra={"props": {"request_id": request_id, "nodes": "sql_agent, validator, answer"}})
+                extra={"props": {"request_id": request_id,
+                                "nodes": "sql_agent, validator, answer, feedback, improve_answer, error_end"}})
     
     # Add edges
     graph.set_entry_point('sql_agent')
     graph.add_edge('sql_agent', 'validator')
+    graph.add_edge('validator', 'answer')
+    graph.add_edge('answer', 'feedback')
+    
+    # Add conditional edges from feedback based on the feedback_router function
     graph.add_conditional_edges(
-        'validator', should_continue, {
-            "answer": "answer",
-            END: END
+        'feedback',
+        feedback_router,
+        {
+            'accept': END,
+            'improve': 'improve_answer',
+            'fail': 'error_end'
         }
     )
-    graph.add_edge('answer', END)
+    
+    # Add edge from improve_answer back to feedback to create the improvement loop
+    graph.add_edge('improve_answer', 'feedback')
+    graph.add_edge('error_end', END)
     
     logger.debug("Added edges to workflow graph",
                 extra={"props": {"request_id": request_id}})
