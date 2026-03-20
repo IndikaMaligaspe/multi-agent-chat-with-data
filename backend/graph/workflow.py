@@ -299,15 +299,46 @@ def answer_node(state: AgentState) -> AgentState:
                 
             structured_data = []
             
-            # Process each customer entry
-            for customer in customers:
+            # Process each entry (could be customer, order, product, etc.)
+            for entry in customers:
                 # Extract fields like "- Field: Value"
-                number, name, details = customer
+                number, name, details = entry
                 field_pattern = r'-\s+(.*?):\s+(.*?)(?=\n\s+-|\Z)'
                 fields = re.findall(field_pattern, details, re.DOTALL)
+
+                # Determine the primary field name from the bold header
+                # Strip any trailing colon and whitespace
+                primary_field = name.strip().rstrip(':').strip() or "Entry"
                 
-                # Create customer object
-                customer_obj = {"Customer Number": number.strip(), "Customer Name": name.strip()}
+                # Create object with dynamic field names based on content
+                entry_obj = {
+                    "#": number.strip(),  # Use generic numbering
+                    primary_field: ""     # Use the actual entity type as field name
+                }
+                
+                # Add each field from the details section
+                for field_name, field_value in fields:
+                    clean_field_name = field_name.strip()
+                    clean_field_value = field_value.strip()
+                    
+                    # If this is the primary field's value, update it
+                    if clean_field_name.lower() == primary_field.lower():
+                        entry_obj[primary_field] = clean_field_value
+                    else:
+                        # Otherwise add as a separate field
+                        entry_obj[clean_field_name] = clean_field_value
+                
+                # Add the entry to our structured data
+                structured_data.append(entry_obj)
+                
+                log_with_props(logger, "debug",
+                               "Using dynamic field names in parse_formatted_text",
+                               node=node_name,
+                               request_id=request_id,
+                               entry_number=number.strip(),
+                               primary_field=primary_field,
+                               field_count=len(fields),
+                               field_names=list(entry_obj.keys()))
                 
                 # Add each field
                 for field_name, field_value in fields:
@@ -315,9 +346,11 @@ def answer_node(state: AgentState) -> AgentState:
                     
                 structured_data.append(customer_obj)
             
-            log_with_props(logger, "info", f"Successfully parsed {len(structured_data)} customers from text in {node_name}",
+            log_with_props(logger, "info", f"Successfully parsed {len(structured_data)} entries from text in {node_name}",
                            node=node_name,
                            request_id=request_id,
+                           entry_count=len(structured_data),
+                           entry_type=primary_field if 'primary_field' in locals() else "unknown",
                            fields=list(structured_data[0].keys()) if structured_data else [])
                            
             return structured_data
@@ -539,35 +572,34 @@ def answer_node(state: AgentState) -> AgentState:
                 'final_answer': formatted_widget
             }
 
-        # If query is about customers or looks like it should be a table, force table widget
+        # Determine widget type based purely on data structure, not query text
         should_be_table = False
-        query_lower = state['query'].lower()
         
-        # More robust detection for customer-related queries
-        customer_keywords = ["customer", "customers", "client", "clients"]
-        show_keywords = ["show", "list", "display", "get", "give", "see"]
+        # First check if this is an aggregation result (single value with label)
+        is_aggregation = (
+            isinstance(data, list) and len(data) == 1 and
+            isinstance(data[0], dict) and 'value' in data[0] and 'label' in data[0]
+        )
         
-        # Check if query is asking to show customer data
-        is_customer_query = any(keyword in query_lower for keyword in customer_keywords)
-        is_show_query = any(keyword in query_lower for keyword in show_keywords) or "all" in query_lower
+        # Then check if it should be a table (any list of multi-column dicts)
+        if not is_aggregation and isinstance(data, list) and len(data) >= 1 and all(isinstance(row, dict) for row in data):
+            # Check if the first row has at least 2 columns (not just a value wrapper)
+            if isinstance(data[0], dict) and len(data[0]) >= 2:
+                should_be_table = True
         
-        if (is_customer_query and is_show_query) or \
-           ("show" in query_lower and "all" in query_lower) or \
-           (isinstance(data, list) and len(data) > 2 and all(isinstance(row, dict) for row in data)):
-            should_be_table = True
-            
         # Log the detection for debugging
         log_with_props(logger, "info", f"Table widget detection for query: {state['query']}",
                        node=node_name,
                        request_id=request_id,
-                       is_customer_query=is_customer_query,
-                       is_show_query=is_show_query,
-                       should_be_table=should_be_table)
+                       is_aggregation=is_aggregation,
+                       should_be_table=should_be_table,
+                       data_row_count=len(data) if isinstance(data, list) else 0)
             
         log_with_props(logger, "info", f"Determining widget type for query: {state['query']}",
                        node=node_name,
                        request_id=request_id,
                        should_be_table=should_be_table,
+                       is_aggregation=is_aggregation,
                        data_length=len(data) if isinstance(data, list) else 0,
                        data_fields=list(data[0].keys()) if isinstance(data, list) and data and isinstance(data[0], dict) else [])
         
@@ -1065,42 +1097,6 @@ def feedback_router(state: AgentState) -> str:
 
     return decision
 
-# Maximum number of feedback improvement attempts before failing
-MAX_FEEDBACK_ATTEMPTS = 2
-
-def feedback_router(state: AgentState) -> str:
-    """
-    Conditional edge function for routing after feedback evaluation.
-
-    Returns:
-        'accept'  — score >= 6, answer is good enough → END
-        'improve' — score < 6, attempts < MAX_FEEDBACK_ATTEMPTS → improve_answer
-        'fail'    — score < 6, attempts >= MAX_FEEDBACK_ATTEMPTS → error_end
-    """
-    node_name = "feedback_router"
-    request_id = RequestContext.get_request_id()
-
-    score = state.get('feedback_score', 0)
-    attempts = state.get('feedback_attempt', 0)
-
-    if score >= 6:
-        decision = 'accept'
-    elif attempts >= MAX_FEEDBACK_ATTEMPTS:
-        decision = 'fail'
-        # Update the feedback_exceeded flag when max attempts are reached
-        state['feedback_exceeded'] = True
-    else:
-        decision = 'improve'
-
-    log_with_props(logger, "info", f"Feedback routing decision: {decision}",
-                  node=node_name,
-                  request_id=request_id,
-                  score=score,
-                  attempts=attempts,
-                  max_attempts=MAX_FEEDBACK_ATTEMPTS,
-                  decision=decision)
-
-    return decision
 
 def error_end_node(state: AgentState) -> AgentState:
     """

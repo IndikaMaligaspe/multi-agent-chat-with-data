@@ -1,31 +1,24 @@
 from typing import Any, Dict, Optional, List
 import mysql.connector as _mysql_connector
-from mysql.connector import Error
+from mysql.connector import Error, pooling
 import os
 import time
 import datetime
 import json
+from decimal import Decimal
 from dotenv import load_dotenv
 from observability.logging import get_logger, log_with_props, log_execution_time, RequestContext
+from widget_formatter import DateTimeEncoder
 
 # Initialize logger
 logger = get_logger(__name__)
 
 load_dotenv()
 
-# Custom JSON encoder to handle datetime objects
-class DateTimeEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, datetime.datetime):
-            return obj.isoformat()
-        elif isinstance(obj, datetime.date):
-            return obj.isoformat()
-        return super().default(obj)
-
 def serialize_sql_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Serialize SQL query results to ensure datetime objects are converted to ISO format strings.
-    This prevents JSON serialization errors when datetime objects are returned.
+    Serialize SQL query results to ensure datetime and Decimal objects are converted to JSON-safe types.
+    This prevents JSON serialization errors when datetime or Decimal objects are returned.
     """
     if not results:
         return results
@@ -43,6 +36,8 @@ def serialize_sql_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]
             for key, value in row.items():
                 if isinstance(value, (datetime.datetime, datetime.date)):
                     serialized_row[key] = value.isoformat()
+                elif isinstance(value, Decimal):
+                    serialized_row[key] = str(value)
                 else:
                     serialized_row[key] = value
             serialized.append(serialized_row)
@@ -51,47 +46,97 @@ def serialize_sql_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]
 class ChatWithDataMCPServer:
     """
     A class to handle MySQL database operations for the MCP server.
+
+    Uses a MySQLConnectionPool so that concurrent tool calls from LangGraph's
+    ReAct agent each obtain their own dedicated connection from the pool instead
+    of sharing a single connection object.  Sharing a single mysql.connector C-
+    extension connection across threads causes a "Double free of object" crash
+    because the C-level malloc/free operations are not thread-safe on the same
+    connection handle.
     """
 
-    def __init__(self):
-        """Initialize the MCP server and establish database connection."""
-        logger.info("Initializing ChatWithDataMCPServer")
-        self.connection = None
-        self.connect()
+    # Number of connections kept ready in the pool.  Tune via MYSQL_POOL_SIZE
+    # env-var; defaults to 5 which is generous for the typical request volume.
+    _DEFAULT_POOL_SIZE = 5
 
-    def connect(self):
+    def __init__(self):
+        """Initialize the MCP server and create the connection pool."""
+        logger.info("Initializing ChatWithDataMCPServer")
+        self.pool: Optional[pooling.MySQLConnectionPool] = None
+        self._init_pool()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _init_pool(self) -> None:
         """
-        Establish a connection to the MySQL database using credentials from environment variables.
+        Create a MySQLConnectionPool.
+
+        Each call to pool.get_connection() returns a dedicated PooledMySQLConnection
+        that is thread-safe: multiple threads/coroutines can each hold their own
+        connection simultaneously without sharing any C-extension state.
         """
         host = os.getenv('MYSQL_HOST')
-        db = os.getenv('MYSQL_DATABASE')
-        
-        logger.info("Attempting to connect to MySQL database",
-                  extra={"props": {"host": host, "database": db}})
-        
+        db   = os.getenv('MYSQL_DATABASE')
+        pool_size = int(os.getenv('MYSQL_POOL_SIZE', self._DEFAULT_POOL_SIZE))
+
+        log_with_props(logger, "info", "Creating MySQL connection pool",
+                       host=host, database=db, pool_size=pool_size)
+
         start_time = time.time()
         try:
-            self.connection = _mysql_connector.connect(
+            self.pool = pooling.MySQLConnectionPool(
+                pool_name="datachat_pool",
+                pool_size=pool_size,
+                pool_reset_session=True,
                 host=host,
                 user=os.getenv('MYSQL_USER'),
                 password=os.getenv('MYSQL_PASSWORD'),
-                database=db
+                database=db,
             )
-            
-            connection_time = time.time() - start_time
-            log_with_props(logger, "info", "Connection to MySQL database established successfully",
-                          host=host,
-                          database=db,
-                          connection_time_ms=round(connection_time * 1000, 2))
+            elapsed = round((time.time() - start_time) * 1000, 2)
+            log_with_props(logger, "info",
+                           "MySQL connection pool created successfully",
+                           host=host, database=db,
+                           pool_size=pool_size,
+                           creation_time_ms=elapsed)
         except Error as e:
-            connection_time = time.time() - start_time
-            log_with_props(logger, "error", "Error connecting to MySQL database",
-                          host=host,
-                          database=db,
-                          error=str(e),
-                          connection_time_ms=round(connection_time * 1000, 2))
-            self.connection = None
-        
+            elapsed = round((time.time() - start_time) * 1000, 2)
+            log_with_props(logger, "error",
+                           "Failed to create MySQL connection pool",
+                           host=host, database=db,
+                           error=str(e),
+                           creation_time_ms=elapsed)
+            self.pool = None
+
+    def _get_connection(self) -> Optional[pooling.PooledMySQLConnection]:
+        """
+        Obtain a dedicated connection from the pool.
+
+        If the pool was never initialised (e.g. bad credentials at startup) a
+        re-initialisation attempt is made before giving up.
+        """
+        if self.pool is None:
+            log_with_props(logger, "warning",
+                           "Connection pool not available, attempting re-initialisation")
+            self._init_pool()
+
+        if self.pool is None:
+            return None
+
+        try:
+            return self.pool.get_connection()
+        except Error as e:
+            log_with_props(logger, "error",
+                           "Failed to obtain connection from pool",
+                           error=str(e))
+            return None
+
+    # ------------------------------------------------------------------
+    # Public MCP tools
+    # ------------------------------------------------------------------
+
     def execute_query(self, query: str) -> Dict[str, Any]:
         """
         MCP Tool: Executes a given SQL query on the connected MySQL database and returns the result.
@@ -99,28 +144,30 @@ class ChatWithDataMCPServer:
         """
         request_id = RequestContext.get_request_id()
         query_type = query.strip().upper().split()[0] if query.strip() else "UNKNOWN"
-        
+
         # Truncate query for logging to avoid excessive log size
         safe_query = query[:150] + "..." if len(query) > 150 else query
-        
-        log_with_props(logger, "info", "Executing database query",
-                      query_type=query_type,
-                      query_preview=safe_query,
-                      query_length=len(query),
-                      request_id=request_id)
 
-        # Check connection status
-        if not self.connection or not self.connection.is_connected():
-            log_with_props(logger, "debug", "Database connection not active, reconnecting",
-                          request_id=request_id)
-            self.connect()
-        
+        log_with_props(logger, "info", "Executing database query",
+                       query_type=query_type,
+                       query_preview=safe_query,
+                       query_length=len(query),
+                       request_id=request_id)
+
+        conn   = self._get_connection()
         cursor = None
         start_time = time.time()
+
+        if conn is None:
+            log_with_props(logger, "error",
+                           "Could not obtain a database connection from the pool",
+                           request_id=request_id)
+            return {"success": False, "data": None,
+                    "error": "Database connection unavailable"}
+
         try:
-            # Create cursor and execute query
-            cursor = self.connection.cursor(dictionary=True)
-            
+            cursor = conn.cursor(dictionary=True)
+
             with log_execution_time(logger, "db_query_execution"):
                 cursor.execute(query)
 
@@ -128,17 +175,17 @@ class ChatWithDataMCPServer:
             if query_type == "SELECT":
                 results = cursor.fetchall()
                 row_count = len(results)
-                
+
                 # Serialize results to handle datetime objects
                 serialized_results = serialize_sql_results(results)
-                
+
                 execution_time = time.time() - start_time
                 log_with_props(logger, "info", "SELECT query executed successfully",
-                              query_type=query_type,
-                              row_count=row_count,
-                              execution_time_ms=round(execution_time * 1000, 2),
-                              request_id=request_id)
-                
+                               query_type=query_type,
+                               row_count=row_count,
+                               execution_time_ms=round(execution_time * 1000, 2),
+                               request_id=request_id)
+
                 return {
                     "success": True,
                     "data": serialized_results,
@@ -146,16 +193,16 @@ class ChatWithDataMCPServer:
                     "error": None
                 }
             else:
-                self.connection.commit()
+                conn.commit()
                 affected_rows = cursor.rowcount
-                
+
                 execution_time = time.time() - start_time
                 log_with_props(logger, "info", "Non-SELECT query executed successfully",
-                              query_type=query_type,
-                              affected_rows=affected_rows,
-                              execution_time_ms=round(execution_time * 1000, 2),
-                              request_id=request_id)
-                
+                               query_type=query_type,
+                               affected_rows=affected_rows,
+                               execution_time_ms=round(execution_time * 1000, 2),
+                               request_id=request_id)
+
                 return {
                     "success": True,
                     "affected_rows": affected_rows,
@@ -164,20 +211,24 @@ class ChatWithDataMCPServer:
         except Error as e:
             execution_time = time.time() - start_time
             log_with_props(logger, "error", "Error executing database query",
-                          query_type=query_type,
-                          error=str(e),
-                          query_preview=safe_query,
-                          execution_time_ms=round(execution_time * 1000, 2),
-                          request_id=request_id)
-            
+                           query_type=query_type,
+                           error=str(e),
+                           query_preview=safe_query,
+                           execution_time_ms=round(execution_time * 1000, 2),
+                           request_id=request_id)
+
             return {
                 "success": False,
                 "data": None,
                 "error": str(e)
             }
         finally:
+            # Always release cursor and connection back to the pool.
+            # Each concurrent caller holds its *own* conn object so there
+            # is no shared C-extension state that could be double-freed.
             if cursor:
                 cursor.close()
+            conn.close()  # returns connection to pool, does NOT close the socket
 
     def get_schema(self, table_name: str) -> Dict[str, Any]:
         """
@@ -185,36 +236,40 @@ class ChatWithDataMCPServer:
         Returns: {success:bool, schema:dict, error:str}
         """
         request_id = RequestContext.get_request_id()
-        
+
         log_with_props(logger, "info", "Retrieving database schema",
-                      table=table_name if table_name else "ALL",
-                      request_id=request_id)
-        
-        # Check connection status
-        if not self.connection or not self.connection.is_connected():
-            log_with_props(logger, "debug", "Database connection not active, reconnecting",
-                          request_id=request_id)
-            self.connect()
-        
+                       table=table_name if table_name else "ALL",
+                       request_id=request_id)
+
+        conn   = self._get_connection()
         cursor = None
         start_time = time.time()
+
+        if conn is None:
+            log_with_props(logger, "error",
+                           "Could not obtain a database connection from the pool",
+                           request_id=request_id)
+            return {"success": False,
+                    "error": "Database connection unavailable"}
+
         try:
             with log_execution_time(logger, "get_schema_execution"):
                 if table_name:
-                    cursor = self.connection.cursor(dictionary=True)
+                    cursor = conn.cursor(dictionary=True)
                     cursor.execute(f"DESCRIBE {table_name}")
                     schema = cursor.fetchall()
-                    
+
                     # Serialize schema to handle datetime objects if present
                     schema = serialize_sql_results(schema)
-                    
+
                     execution_time = time.time() - start_time
-                    log_with_props(logger, "info", "Schema retrieved successfully for table",
-                                  table=table_name,
-                                  column_count=len(schema),
-                                  execution_time_ms=round(execution_time * 1000, 2),
-                                  request_id=request_id)
-                    
+                    log_with_props(logger, "info",
+                                   "Schema retrieved successfully for table",
+                                   table=table_name,
+                                   column_count=len(schema),
+                                   execution_time_ms=round(execution_time * 1000, 2),
+                                   request_id=request_id)
+
                     return {
                         "success": True,
                         "table": table_name,
@@ -222,16 +277,16 @@ class ChatWithDataMCPServer:
                         "error": None
                     }
                 else:
-                    cursor = self.connection.cursor(dictionary=True)
+                    cursor = conn.cursor(dictionary=True)
                     cursor.execute("SHOW TABLES")
                     tables = [list(row.values())[0] for row in cursor.fetchall()]
-                    
+
                     execution_time = time.time() - start_time
                     log_with_props(logger, "info", "Retrieved list of all tables",
-                                  table_count=len(tables),
-                                  execution_time_ms=round(execution_time * 1000, 2),
-                                  request_id=request_id)
-                    
+                                   table_count=len(tables),
+                                   execution_time_ms=round(execution_time * 1000, 2),
+                                   request_id=request_id)
+
                     return {
                         "success": True,
                         "tables": tables,
@@ -240,18 +295,23 @@ class ChatWithDataMCPServer:
         except Error as e:
             execution_time = time.time() - start_time
             log_with_props(logger, "error", "Error retrieving database schema",
-                          table=table_name if table_name else "ALL",
-                          error=str(e),
-                          execution_time_ms=round(execution_time * 1000, 2),
-                          request_id=request_id)
-            
+                           table=table_name if table_name else "ALL",
+                           error=str(e),
+                           execution_time_ms=round(execution_time * 1000, 2),
+                           request_id=request_id)
+
             return {
                 "success": False,
                 "error": str(e)
             }
         finally:
+            # Always release cursor and connection back to the pool.
             if cursor:
                 cursor.close()
+            conn.close()  # returns connection to pool
 
-#Singleton instance of the MCP server
+
+# Singleton instance of the MCP server.
+# The pool inside is thread-safe; concurrent callers each get their own
+# PooledMySQLConnection so the C-extension double-free cannot occur.
 mcp_server = ChatWithDataMCPServer()

@@ -218,13 +218,32 @@ Be precise and only query for what the user asks."""
             # Extract the final answer from the agent's response
             # The result contains all messages including agent's thoughts and final answer
             messages = result.get("messages", [])
-            
+
             # Get the last AI message (the final answer)
             final_answer = None
             for msg in reversed(messages):
                 if hasattr(msg, 'content') and msg.type == 'ai':
                     final_answer = msg.content
                     break
+                    
+            # Extract raw data from the last execute_sql tool result in the trace
+            # This ensures we forward the actual DB rows to answer_node, not just the LLM's text
+            raw_db_data = None
+            for msg in reversed(messages):
+                if getattr(msg, 'type', '') == 'tool':
+                    try:
+                        tool_content = getattr(msg, 'content', '')
+                        parsed_tool = json.loads(tool_content) if isinstance(tool_content, str) else tool_content
+                        if isinstance(parsed_tool, dict) and 'data' in parsed_tool:
+                            raw_db_data = parsed_tool['data']
+                            log_with_props(logger, "info", "Extracted raw DB data from tool result",
+                                          request_id=request_id,
+                                          row_count=len(raw_db_data) if isinstance(raw_db_data, list) else 0)
+                            break
+                    except Exception as e:
+                        log_with_props(logger, "debug", "Failed to extract data from tool result",
+                                      request_id=request_id,
+                                      error=str(e))
             
             # Log outcome
             log_with_props(logger, "info", "SQL Agent produced final answer",
@@ -236,6 +255,7 @@ Be precise and only query for what the user asks."""
             return {
                 'success': True,
                 'output': final_answer or "No answer generated",
+                'data': raw_db_data,  # Forward raw DB rows to answer_node
                 'full_trace': messages  # Useful for debugging
             }
             
